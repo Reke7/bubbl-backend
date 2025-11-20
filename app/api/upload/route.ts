@@ -10,17 +10,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
-    // Upload to Vercel Blob Storage
-    // "access: 'public'" means the video can be viewed by anyone with the link
-    const blob = await put(file.name, file, {
+    // FIX: Generate a unique name every time (Timestamp + Random String)
+    const uniqueName = `vid-${Date.now()}-${Math.random().toString(36).substring(7)}.webm`;
+
+    // Upload with the new unique name
+    const blob = await put(uniqueName, file, {
       access: 'public',
     });
 
-    // Return the direct cloud URL (e.g., public.blob.vercel-storage.com/...)
     return NextResponse.json({ url: blob.url });
 
   } catch (e) {
-    console.error(e);
+    console.error("Upload Error:", e);
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }
