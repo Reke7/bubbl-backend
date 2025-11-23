@@ -1,91 +1,121 @@
-import { NextResponse } from 'next/server';
-// Import HeadBlobResult so we can extend it
-import { copy, CopyCommandOptions, head, HeadBlobResult } from '@vercel/blob';
-import { auth } from '@clerk/nextjs/server';
+import { currentUser } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
+import { list, ListBlobResultBlob } from '@vercel/blob';
+import Link from 'next/link';
+import VideoThumbnail from '@/components/VideoThumbnail';
+import DeleteVideoButton from '@/components/DeleteVideoButton';
+// 1. Import the new editor component
+import VideoNameEditor from '@/components/VideoNameEditor';
+import { unstable_noStore as noStore } from 'next/cache';
 
-// Define interface for COPY options
-interface CopyOptionsWithExtended extends CopyCommandOptions {
-  metadata?: Record<string, string | undefined>;
-  addRandomSuffix?: boolean;
-}
+export const dynamic = 'force-dynamic';
 
-// Define NEW interface for HEAD result
-interface HeadBlobResultWithMetadata extends HeadBlobResult {
-  metadata?: Record<string, string>;
-}
-
-export async function POST(req: Request) {
-  console.log("--- Update Name API Called (Final TS Fix) ---");
-  try {
-    // 1. Check Authentication
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // 2. Get data from request body
-    const body = await req.json();
-    const { videoUrl, newName, durationSecs } = body;
-
-    if (!videoUrl || typeof videoUrl !== 'string' || !newName || typeof newName !== 'string') {
-        return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
-    }
-
-    console.log(`Updating name to: "${newName}" for URL: ${videoUrl}`);
-
-    // 3. Verify Ownership & Prepare Path
-    const urlObj = new URL(videoUrl);
-    const pathParts = urlObj.pathname.split('/');
-    const fileOwnerId = pathParts[1];
-
-    if (fileOwnerId !== userId) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    // Ensure path is relative (remove leading slash)
-    let destinationPath = urlObj.pathname;
-    if (destinationPath.startsWith('/')) {
-        destinationPath = destinationPath.substring(1);
-    }
-
-    // 4. Update Metadata using copy() onto itself
-    // addRandomSuffix: false ensures we overwrite the existing file path
-    const copyResult = await copy(videoUrl, destinationPath, {
-        access: 'public',
-        addRandomSuffix: false, // FORCE OVERWRITE
-        metadata: {
-            customName: newName.trim(),
-            // Re-save the duration so it's not lost
-            durationSecs: durationSecs ? String(durationSecs) : undefined,
-            updatedAt: Date.now().toString() // Force change detection
-        }
-    } as CopyOptionsWithExtended);
-
-    console.log("Copy operation finished. Result URL:", copyResult.url);
-
-    // 5. VERIFICATION STEP: Immediately check if metadata stuck
-    try {
-        console.log("Verifying metadata update immediately...");
-        // Cast the result to our custom interface to fix the TS error
-        const metaCheck = (await head(copyResult.url)) as HeadBlobResultWithMetadata;
-        
-        console.log("Verification result - customName is now:", metaCheck.metadata?.customName);
-        
-         if (metaCheck.metadata?.customName !== newName.trim()) {
-             console.error("CRITICAL: Verification failed. Metadata did not update.");
-             // We log this but don't fail the request, as eventual consistency might still save it.
-         }
-    } catch (verifyErr) {
-        console.warn("Verification check failed (might be eventual consistency issue):", verifyErr);
-    }
-
-    return NextResponse.json({ success: true, name: newName.trim() });
-
-  } catch (e) {
-    console.error("Update Error:", e);
-    return NextResponse.json(
-        { error: 'Update failed: ' + (e instanceof Error ? e.message : 'Unknown error') },
-        { status: 500 }
-    );
+// 2. Update interface to include customName
+interface BlobWithMetadata extends ListBlobResultBlob {
+  metadata?: {
+    durationSecs?: string;
+    customName?: string; // Add this new field
   }
+}
+
+function formatDuration(secondsStr: string | undefined): string {
+  if (!secondsStr) return "";
+  const totalSeconds = parseInt(secondsStr, 10);
+  if (isNaN(totalSeconds) || totalSeconds === 0) return "";
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+export default async function Dashboard() {
+  noStore();
+  const user = await currentUser();
+  if (!user) {
+    redirect('/sign-in');
+  }
+
+  const { blobs } = await list({
+    prefix: user.id + '/',
+    limit: 100,
+    mode: 'folded',
+  });
+
+  const videoBlobs = blobs.filter(blob => blob.pathname.endsWith('.webm'));
+  videoBlobs.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
+  return (
+    <main className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Your Recordings</h1>
+            <p className="text-gray-600">Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}</p>
+          </div>
+          <div id="clerk-user-button"></div>
+        </div>
+
+        {/* Video Grid */}
+        {videoBlobs.length === 0 ? (
+          <div className="text-center py-20 bg-white rounded-xl shadow-sm border border-gray-100">
+            <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            <p className="text-gray-500 mb-2 text-lg font-medium">No recordings yet</p>
+            <p className="text-sm text-gray-400">Click the Bubbl extension icon to start recording.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {videoBlobs.map((blobRaw) => {
+              const blob = blobRaw as BlobWithMetadata;
+              const thumbnailUrl = blob.url.replace('.webm', '.jpg');
+              // 3. Extract metadata fields
+              const durationStr = blob.metadata?.durationSecs;
+              const customName = blob.metadata?.customName;
+              const formattedDuration = formatDuration(durationStr);
+
+              return (
+              <div key={blob.url} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition group relative">
+                {/* THUMBNAIL AREA */}
+                <div className="relative h-48 bg-gray-200">
+                   <VideoThumbnail src={thumbnailUrl} alt="Video thumbnail" />
+                   <DeleteVideoButton videoUrl={blob.url} />
+
+                   {/* Play icon overlay */}
+                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all flex items-center justify-center pointer-events-none">
+                      <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-all transform scale-90 group-hover:scale-100">
+                        <svg className="w-6 h-6 text-red-500 ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" /></svg>
+                      </div>
+                   </div>
+                   {/* Duration Badge - This will show for new videos! */}
+                   {formattedDuration && (
+                     <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-medium px-2 py-1 rounded-md backdrop-blur-sm pointer-events-none">
+                       {formattedDuration}
+                     </div>
+                   )}
+                </div>
+
+                {/* CARD FOOTER */}
+                <div className="p-4">
+                   <div className="flex items-center justify-between mb-3">
+                    {/* 4. Use the new editor component here */}
+                    <VideoNameEditor
+                        initialName={customName}
+                        videoUrl={blob.url}
+                        durationSecs={durationStr}
+                    />
+                    <span className="text-sm text-gray-500 flex-shrink-0">
+                        {new Date(blob.uploadedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+                    </span>
+                   </div>
+                   <Link href={`/watch?v=${encodeURIComponent(blob.url)}`} className="block w-full text-center py-2.5 bg-red-50 text-red-600 rounded-lg font-semibold hover:bg-red-100 transition border border-red-100">
+                     Watch Video
+                   </Link>
+                </div>
+              </div>
+            )})}
+          </div>
+        )}
+      </div>
+    </main>
+  );
 }
