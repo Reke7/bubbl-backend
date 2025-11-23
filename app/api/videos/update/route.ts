@@ -1,21 +1,20 @@
 import { NextResponse } from 'next/server';
-// Import HeadBlobResult so we can extend it
-import { copy, CopyCommandOptions, head, HeadBlobResult } from '@vercel/blob';
+// 1. Import PutCommandOptions so we can extend it
+import { put, del, head, HeadBlobResult, PutCommandOptions } from '@vercel/blob';
 import { auth } from '@clerk/nextjs/server';
 
-// Define interface for COPY options
-interface CopyOptionsWithExtended extends CopyCommandOptions {
+// 2. Define interface for PUT options to include metadata
+interface PutOptionsWithMetadata extends PutCommandOptions {
   metadata?: Record<string, string | undefined>;
-  addRandomSuffix?: boolean;
 }
 
-// Define NEW interface for HEAD result
+// Interface for TypeScript to know about metadata in head() result
 interface HeadBlobResultWithMetadata extends HeadBlobResult {
   metadata?: Record<string, string>;
 }
 
 export async function POST(req: Request) {
-  console.log("--- Update Name API Called (Final TS Fix) ---");
+  console.log("--- Update Name API Called (The 'Replace' Strategy - Final TS Fix) ---");
   try {
     // 1. Check Authentication
     const { userId } = await auth();
@@ -25,13 +24,13 @@ export async function POST(req: Request) {
 
     // 2. Get data from request body
     const body = await req.json();
-    const { videoUrl, newName, durationSecs } = body;
+    const { videoUrl, newName } = body;
 
     if (!videoUrl || typeof videoUrl !== 'string' || !newName || typeof newName !== 'string') {
         return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
-    console.log(`Updating name to: "${newName}" for URL: ${videoUrl}`);
+    console.log(`Replacing video entry to update name: "${newName}" for URL: ${videoUrl}`);
 
     // 3. Verify Ownership & Prepare Path
     const urlObj = new URL(videoUrl);
@@ -42,42 +41,49 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Ensure path is relative (remove leading slash)
+    // Get relative destination path (e.g., "user_123/vid-abc.webm")
     let destinationPath = urlObj.pathname;
     if (destinationPath.startsWith('/')) {
         destinationPath = destinationPath.substring(1);
     }
 
-    // 4. Update Metadata using copy() onto itself
-    // addRandomSuffix: false ensures we overwrite the existing file path
-    const copyResult = await copy(videoUrl, destinationPath, {
+
+    // --- THE NEW STRATEGY STARTS HERE ---
+
+    // A. Fetch existing metadata to preserve duration
+    console.log("Fetching existing metadata...");
+    // Use our custom Head interface here
+    const currentMetadata = (await head(videoUrl)) as HeadBlobResultWithMetadata;
+    const existingDuration = currentMetadata.metadata?.durationSecs;
+
+    // B. Download the actual file content from Vercel Blob into memory
+    console.log("Downloading file into memory...");
+    const fileResponse = await fetch(videoUrl);
+    if (!fileResponse.ok) throw new Error("Failed to fetch existing video file");
+    const fileBuffer = await fileResponse.arrayBuffer();
+
+
+    // C. Delete the old file
+    console.log("Deleting old file...");
+    await del(videoUrl);
+
+
+    // D. Upload the file back to the same path with NEW metadata
+    console.log("Uploading file with new metadata...");
+    await put(destinationPath, fileBuffer, {
         access: 'public',
-        addRandomSuffix: false, // FORCE OVERWRITE
+        contentType: 'video/webm',
+        addRandomSuffix: false, // Ensure we reuse the exact same path
         metadata: {
             customName: newName.trim(),
-            // Re-save the duration so it's not lost
-            durationSecs: durationSecs ? String(durationSecs) : undefined,
-            updatedAt: Date.now().toString() // Force change detection
+            // Ensure duration is preserved. If none existed, keep it undefined.
+            durationSecs: existingDuration || undefined,
+            updatedAt: Date.now().toString() // Helps bust caches
         }
-    } as CopyOptionsWithExtended);
+    // 3. Cast to our new Put interface here
+    } as PutOptionsWithMetadata);
 
-    console.log("Copy operation finished. Result URL:", copyResult.url);
-
-    // 5. VERIFICATION STEP: Immediately check if metadata stuck
-    try {
-        console.log("Verifying metadata update immediately...");
-        // Cast the result to our custom interface to fix the TS error
-        const metaCheck = (await head(copyResult.url)) as HeadBlobResultWithMetadata;
-        
-        console.log("Verification result - customName is now:", metaCheck.metadata?.customName);
-        
-         if (metaCheck.metadata?.customName !== newName.trim()) {
-             console.error("CRITICAL: Verification failed. Metadata did not update.");
-             // We log this but don't fail the request, as eventual consistency might still save it.
-         }
-    } catch (verifyErr) {
-        console.warn("Verification check failed (might be eventual consistency issue):", verifyErr);
-    }
+    console.log("Replacement operation complete.");
 
     return NextResponse.json({ success: true, name: newName.trim() });
 
