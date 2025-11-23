@@ -24,9 +24,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
-    // 3. Verify Ownership (Security)
+    // 3. Verify Ownership (Security) & Prepare Path
     const urlObj = new URL(videoUrl);
-    // Path is like /userId/video-id.webm. We check if userId matches.
+    // Pathname is like "/user_123/vid-abc.webm"
     const pathParts = urlObj.pathname.split('/');
     const fileOwnerId = pathParts[1];
 
@@ -34,18 +34,23 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    // EXTRACT THE DESTINATION PATH
+    // Remove the leading "/" from the pathname to get the relative path
+    // e.g., converts "/user_123/vid-abc.webm" to "user_123/vid-abc.webm"
+    const destinationPath = urlObj.pathname.substring(1);
+
+
     // 4. Update Metadata using copy()
-    // We copy the file onto itself with new metadata.
-    // IMPORTANT: We must re-provide ALL metadata we want to keep, including duration.
-    await copy(videoUrl, videoUrl, {
+    // Pass 'destinationPath' as the second argument instead of 'videoUrl'
+    await copy(videoUrl, destinationPath, {
         access: 'public',
-        contentType: 'video/webm', // Good practice to re-state content type
+        contentType: 'video/webm',
         metadata: {
             customName: newName.trim(),
             // Re-save the duration so it's not lost
             durationSecs: durationSecs ? String(durationSecs) : undefined,
         }
-    } as CopyOptionsWithMetadata); // <-- Cast to our new interface
+    } as CopyOptionsWithMetadata);
 
     return NextResponse.json({ success: true, name: newName.trim() });
 
