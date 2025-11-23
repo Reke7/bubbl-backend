@@ -6,6 +6,7 @@ import VideoThumbnail from '@/components/VideoThumbnail';
 import DeleteVideoButton from '@/components/DeleteVideoButton';
 // 1. Import the new editor component
 import VideoNameEditor from '@/components/VideoNameEditor';
+import { unstable_noStore as noStore } from 'next/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,7 @@ function formatDuration(secondsStr: string | undefined): string {
 }
 
 export default async function Dashboard() {
+  noStore();
   const user = await currentUser();
   if (!user) {
     redirect('/sign-in');
