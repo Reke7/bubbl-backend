@@ -1,58 +1,122 @@
 import { currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-import { list } from '@vercel/blob';
+// 1. Import the base type for a single blob result
+import { list, ListBlobResultBlob } from '@vercel/blob';
 import Link from 'next/link';
 
+// Ensure this page always fetches fresh data
 export const dynamic = 'force-dynamic';
 
+// 2. Define a custom interface that extends the base blob type
+// and adds our specific metadata structure.
+interface BlobWithMetadata extends ListBlobResultBlob {
+  metadata?: {
+    durationSecs?: string;
+  }
+}
+
+// Helper to format seconds (e.g., "85") into "MM:SS" (e.g., "1:25")
+function formatDuration(secondsStr: string | undefined): string {
+  if (!secondsStr) return "";
+  const totalSeconds = parseInt(secondsStr, 10);
+  if (isNaN(totalSeconds) || totalSeconds === 0) return "";
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  // Pad seconds with a leading zero if needed (e.g., "4:05")
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 export default async function Dashboard() {
-  // 1. Get the current user. If not logged in, send to sign-in.
+  // 1. Get current user
   const user = await currentUser();
   if (!user) {
     redirect('/sign-in');
   }
 
-  // 2. Fetch ONLY this user's videos directly from Blob storage
+  // 2. Fetch all files for this user
   const { blobs } = await list({
     prefix: user.id + '/',
-    limit: 50,
+    limit: 100, // Fetch more items
+    mode: 'folded', // Ensures we get latest version
   });
+
+  // Filter to keep only webm video files
+  const videoBlobs = blobs.filter(blob => blob.pathname.endsWith('.webm'));
+  // Sort by newest first based on uploadedAt timestamp
+  videoBlobs.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
 
   return (
     <main className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Your Recordings</h1>
-            <p className="text-gray-600">Welcome back, {user.firstName || user.emailAddresses[0].emailAddress}</p>
+            <p className="text-gray-600">Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}</p>
           </div>
           {/* Clerk handles the User Button / Sign Out UI automatically */}
           <div id="clerk-user-button"></div>
         </div>
 
         {/* Video Grid */}
-        {blobs.length === 0 ? (
+        {videoBlobs.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-xl shadow-sm border border-gray-100">
-            <p className="text-gray-500 mb-2">You haven&apos;t recorded anything yet.</p>
-            <p className="text-sm text-gray-400">Use the Bubbl extension to get started!</p>
+            <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            <p className="text-gray-500 mb-2 text-lg font-medium">No recordings yet</p>
+            <p className="text-sm text-gray-400">Click the Bubbl extension icon to start recording.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {blobs.map((blob) => (
-              <div key={blob.url} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition">
-                {/* We use a generic placeholder because generating real thumbnails is complex */}
-                <div className="h-40 bg-gray-100 flex items-center justify-center text-gray-400">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+            {videoBlobs.map((blobRaw) => {
+              // 3. Tell TypeScript to treat this blob as our custom type
+              const blob = blobRaw as BlobWithMetadata;
+
+              // Clever trick: replace .webm extension with .jpg to get thumbnail URL based on naming convention
+              const thumbnailUrl = blob.url.replace('.webm', '.jpg');
+
+              // 4. Now we can access metadata safely without 'any'
+              const durationStr = blob.metadata?.durationSecs;
+              const formattedDuration = formatDuration(durationStr);
+
+              return (
+              <div key={blob.url} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition group">
+                {/* THUMBNAIL AREA */}
+                <div className="relative h-48 bg-gray-200">
+                   <img
+                     src={thumbnailUrl}
+                     alt="Video thumbnail"
+                     className="w-full h-full object-cover"
+                     // Simple fallback: hide image tag if thumbnail fails to load (e.g. old videos)
+                     onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0'; }}
+                   />
+                   {/* Play icon overlay on hover */}
+                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                      <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-all transform scale-90 group-hover:scale-100">
+                        <svg className="w-6 h-6 text-red-500 ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" /></svg>
+                      </div>
+                   </div>
+                   {/* Duration Badge */}
+                   {formattedDuration && (
+                     <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-medium px-2 py-1 rounded-md backdrop-blur-sm">
+                       {formattedDuration}
+                     </div>
+                   )}
                 </div>
+
+                {/* CARD FOOTER */}
                 <div className="p-4">
-                   <div className="text-sm text-gray-500 mb-2">{new Date(blob.uploadedAt).toLocaleDateString()}</div>
-                   <Link href={`/watch?v=${encodeURIComponent(blob.url)}`} className="block w-full text-center py-2 bg-blue-50 text-blue-600 rounded-md font-medium hover:bg-blue-100 transition">
+                   <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-gray-900 truncate">Video Recording</span>
+                    <span className="text-xs text-gray-500">{new Date(blob.uploadedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>
+                   </div>
+                   <Link href={`/watch?v=${encodeURIComponent(blob.url)}`} className="block w-full text-center py-2.5 bg-red-50 text-red-600 rounded-lg font-semibold hover:bg-red-100 transition border border-red-100">
                      Watch Video
                    </Link>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
       </div>
