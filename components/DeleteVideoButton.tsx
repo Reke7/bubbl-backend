@@ -40,14 +40,14 @@ export default function DeleteVideoButton({ videoUrl }: { videoUrl: string }) {
         <div className="flex gap-2">
             <button
                 onClick={() => setShowConfirm(false)}
-                className="px-3 py-1.5 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700 transition"
+                className="px-3 py-1.5 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700 transition cursor-pointer disabled:cursor-not-allowed"
                 disabled={isPending}
             >
                 Cancel
             </button>
             <button
                 onClick={handleDelete}
-                className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition flex items-center"
+                className="px-3 py-1.5 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition flex items-center cursor-pointer disabled:cursor-not-allowed"
                 disabled={isPending}
             >
                 {isPending ? (
@@ -66,7 +66,7 @@ export default function DeleteVideoButton({ videoUrl }: { videoUrl: string }) {
   return (
     <button
       onClick={() => setShowConfirm(true)}
-      className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-600/80 z-10"
+      className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-600/80 z-10 cursor-pointer disabled:cursor-not-allowed"
       title="Delete Video"
       disabled={isPending}
     >
