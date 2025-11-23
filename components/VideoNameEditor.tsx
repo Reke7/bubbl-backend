@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface Props {
@@ -14,11 +14,12 @@ export default function VideoNameEditor({ initialName, videoUrl, durationSecs }:
   const [isEditing, setIsEditing] = useState(false);
   // Use initialName or a default if it's missing (for old videos)
   const displayName = initialName || "Untitled Recording";
+  // State holding the current value being edited or displayed
   const [name, setName] = useState(displayName);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSave = async () => {
-    // If name is empty or hasn't changed, just cancel editing
+    // If name is empty or hasn't changed, just cancel editing and revert
     if (!name.trim() || name.trim() === displayName) {
         setIsEditing(false);
         setName(displayName);
@@ -40,25 +41,26 @@ export default function VideoNameEditor({ initialName, videoUrl, durationSecs }:
 
       if (!res.ok) throw new Error('Failed to update name');
 
-      // Refresh the page so the server fetches the new name
+      // Refresh the page in the background
       router.refresh();
+      // Exit edit mode immediately. The UI will now show the 'name' state value.
       setIsEditing(false);
     } catch (e) {
       console.error(e);
       alert("Failed to save video name. Please try again.");
-      // Reset name on error
+      // Revert name on error
       setName(displayName);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
         e.preventDefault(); // Prevent form submission behaviour
         (e.currentTarget as HTMLInputElement).blur(); // Trigger onBlur to save
     } else if (e.key === 'Escape') {
-        // Cancel editing
+        // Cancel editing and revert
         setIsEditing(false);
         setName(displayName);
     }
@@ -92,7 +94,8 @@ export default function VideoNameEditor({ initialName, videoUrl, durationSecs }:
         title="Click to edit name"
     >
         <span className="text-sm font-medium text-gray-900 truncate group-hover:text-blue-600 transition-colors">
-            {displayName}
+            {/* FIX: Display local state 'name' instead of prop 'displayName' */}
+            {name}
         </span>
         {/* Tiny edit pencil icon that shows on hover */}
         <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 ml-1 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
