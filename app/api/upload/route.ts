@@ -7,19 +7,18 @@ export async function POST(req: Request) {
   const responseHeaders = new Headers();
   responseHeaders.set('Access-Control-Allow-Origin', origin || '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id');
+  // Added X-Video-Duration to allowed headers
+  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-Video-Duration');
   responseHeaders.set('Access-Control-Allow-Credentials', 'true');
 
   try {
+    // 1. Authentication Check
     let userId;
-    
-    // First try to get from session (if user is on the site)
     const authResult = await auth();
     userId = authResult.userId;
-    
+
     console.log('Upload - userId from session:', userId);
-    
-    // If no session, get from custom header
+
     if (!userId) {
       userId = req.headers.get('x-user-id');
       console.log('Upload - userId from header:', userId);
@@ -33,36 +32,60 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get the file from form data
+    // 2. Get Files and Duration info from request
     const formData = await req.formData();
-    const file = formData.get('video') as File;
+    const videoFile = formData.get('video') as File;
+    // Try to get thumbnail file
+    const thumbnailFile = formData.get('thumbnail') as File;
+    // Get duration header (default to "0" if missing)
+    const durationStr = req.headers.get('x-video-duration') || "0";
 
-    if (!file) {
-      console.error('Upload - No file in request');
+    if (!videoFile) {
+      console.error('Upload - No video file in request');
       return NextResponse.json(
-        { error: 'No file uploaded' },
+        { error: 'No video file uploaded' },
         { status: 400, headers: responseHeaders }
       );
     }
 
-    console.log('Upload - File received:', file.name, file.size);
+    console.log('Upload - Video received:', videoFile.name, videoFile.size);
+    if (thumbnailFile) {
+        console.log('Upload - Thumbnail received:', thumbnailFile.name, thumbnailFile.size);
+    }
+    console.log('Upload - Duration received:', durationStr);
 
-    // Upload to Vercel Blob
+
+    // 3. Generate a shared base filename (without extension)
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(7);
-    const filename = `${userId}/vid-${timestamp}-${randomStr}.webm`;
+    const baseFilename = `${userId}/vid-${timestamp}-${randomStr}`;
 
-    console.log('Upload - Uploading to blob:', filename);
+    // 4. Upload Thumbnail first (if it exists)
+    if (thumbnailFile) {
+        console.log('Upload - Uploading thumbnail .jpg');
+        await put(`${baseFilename}.jpg`, thumbnailFile, {
+            access: 'public',
+            contentType: 'image/jpeg',
+            // No specific metadata needed for thumbnail currently
+        });
+    }
 
-    const blob = await put(filename, file, {
+    // 5. Upload Video, attaching duration metadata
+    console.log('Upload - Uploading video .webm with metadata');
+    const videoBlob = await put(`${baseFilename}.webm`, videoFile, {
       access: 'public',
+      contentType: 'video/webm',
+      // Vercel Blob allows custom metadata strings. We save duration here.
+      metadata: {
+        durationSecs: durationStr
+      }
     });
 
-    console.log('Upload - Success:', blob.url);
+    console.log('Upload - Success:', videoBlob.url);
 
     // Return success response with CORS headers
-    return NextResponse.json({ url: blob.url }, { headers: responseHeaders });
-    
+    return NextResponse.json({ url: videoBlob.url }, { headers: responseHeaders });
+
   } catch (e) {
     console.error("Upload Error:", e);
     return NextResponse.json(
@@ -78,7 +101,8 @@ export async function OPTIONS(req: Request) {
   const responseHeaders = new Headers();
   responseHeaders.set('Access-Control-Allow-Origin', origin || '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id');
+  // Added X-Video-Duration to allowed headers here too
+  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-Video-Duration');
   responseHeaders.set('Access-Control-Allow-Credentials', 'true');
 
   return new NextResponse(null, { status: 200, headers: responseHeaders });
