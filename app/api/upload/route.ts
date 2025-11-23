@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
-import { put } from '@vercel/blob';
+// Need to import PutCommandOptions to extend it
+import { put, PutCommandOptions } from '@vercel/blob';
 import { auth } from '@clerk/nextjs/server';
+
+// Define a new interface that adds 'metadata' to the existing options
+interface PutOptionsWithMetadata extends PutCommandOptions {
+  metadata?: Record<string, string>;
+}
 
 export async function POST(req: Request) {
   const origin = req.headers.get('origin');
@@ -70,12 +76,16 @@ export async function POST(req: Request) {
         });
     }
 
-    // 5. Upload Video with duration in filename
-    console.log('Upload - Uploading video .webm');
+    // 5. Upload Video, attaching duration metadata
+    console.log('Upload - Uploading video .webm with metadata');
+    // Use the specific type we defined above
     const videoBlob = await put(`${baseFilename}.webm`, videoFile, {
       access: 'public',
-      contentType: 'video/webm'
-    });
+      contentType: 'video/webm',
+      metadata: {
+        durationSecs: durationStr
+      }
+    } as PutOptionsWithMetadata);
 
     console.log('Upload - Success:', videoBlob.url);
 
