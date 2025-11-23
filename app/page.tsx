@@ -1,49 +1,40 @@
 import { currentUser } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-// 1. Import the base type for a single blob result
 import { list, ListBlobResultBlob } from '@vercel/blob';
 import Link from 'next/link';
+// 1. IMPORT THE NEW CLIENT COMPONENT
+import VideoThumbnail from '@/components/VideoThumbnail';
 
-// Ensure this page always fetches fresh data
 export const dynamic = 'force-dynamic';
 
-// 2. Define a custom interface that extends the base blob type
-// and adds our specific metadata structure.
 interface BlobWithMetadata extends ListBlobResultBlob {
   metadata?: {
     durationSecs?: string;
   }
 }
 
-// Helper to format seconds (e.g., "85") into "MM:SS" (e.g., "1:25")
 function formatDuration(secondsStr: string | undefined): string {
   if (!secondsStr) return "";
   const totalSeconds = parseInt(secondsStr, 10);
   if (isNaN(totalSeconds) || totalSeconds === 0) return "";
-
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  // Pad seconds with a leading zero if needed (e.g., "4:05")
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 export default async function Dashboard() {
-  // 1. Get current user
   const user = await currentUser();
   if (!user) {
     redirect('/sign-in');
   }
 
-  // 2. Fetch all files for this user
   const { blobs } = await list({
     prefix: user.id + '/',
-    limit: 100, // Fetch more items
-    mode: 'folded', // Ensures we get latest version
+    limit: 100,
+    mode: 'folded',
   });
 
-  // Filter to keep only webm video files
   const videoBlobs = blobs.filter(blob => blob.pathname.endsWith('.webm'));
-  // Sort by newest first based on uploadedAt timestamp
   videoBlobs.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
 
 
@@ -56,7 +47,6 @@ export default async function Dashboard() {
             <h1 className="text-2xl font-bold text-gray-900">Your Recordings</h1>
             <p className="text-gray-600">Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}</p>
           </div>
-          {/* Clerk handles the User Button / Sign Out UI automatically */}
           <div id="clerk-user-button"></div>
         </div>
 
@@ -70,13 +60,8 @@ export default async function Dashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {videoBlobs.map((blobRaw) => {
-              // 3. Tell TypeScript to treat this blob as our custom type
               const blob = blobRaw as BlobWithMetadata;
-
-              // Clever trick: replace .webm extension with .jpg to get thumbnail URL based on naming convention
               const thumbnailUrl = blob.url.replace('.webm', '.jpg');
-
-              // 4. Now we can access metadata safely without 'any'
               const durationStr = blob.metadata?.durationSecs;
               const formattedDuration = formatDuration(durationStr);
 
@@ -84,22 +69,18 @@ export default async function Dashboard() {
               <div key={blob.url} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition group">
                 {/* THUMBNAIL AREA */}
                 <div className="relative h-48 bg-gray-200">
-                   <img
-                     src={thumbnailUrl}
-                     alt="Video thumbnail"
-                     className="w-full h-full object-cover"
-                     // Simple fallback: hide image tag if thumbnail fails to load (e.g. old videos)
-                     onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0'; }}
-                   />
+                   {/* 2. USE THE NEW CLIENT COMPONENT HERE */}
+                   <VideoThumbnail src={thumbnailUrl} alt="Video thumbnail" />
+
                    {/* Play icon overlay on hover */}
-                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all flex items-center justify-center pointer-events-none">
                       <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-all transform scale-90 group-hover:scale-100">
                         <svg className="w-6 h-6 text-red-500 ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" /></svg>
                       </div>
                    </div>
                    {/* Duration Badge */}
                    {formattedDuration && (
-                     <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-medium px-2 py-1 rounded-md backdrop-blur-sm">
+                     <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-medium px-2 py-1 rounded-md backdrop-blur-sm pointer-events-none">
                        {formattedDuration}
                      </div>
                    )}
