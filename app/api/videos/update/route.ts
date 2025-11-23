@@ -9,10 +9,12 @@ interface CopyOptionsWithMetadata extends CopyCommandOptions {
 }
 
 export async function POST(req: Request) {
+  console.log("--- Update Name API Called ---");
   try {
     // 1. Check Authentication
     const { userId } = await auth();
     if (!userId) {
+      console.log("Auth failed: No userId");
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -20,16 +22,17 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { videoUrl, newName, durationSecs } = body;
 
+    console.log(`Attempting to update video: ${videoUrl}`);
+    console.log(`New name: ${newName}, Duration to preserve: ${durationSecs}`);
+
     if (!videoUrl || typeof videoUrl !== 'string' || !newName || typeof newName !== 'string') {
+        console.log("Validation failed: Missing data");
         return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
-    // 3. Verify Ownership (Security) & Prepare Path
+    // 3. Verify Ownership & Prepare Path
     const urlObj = new URL(videoUrl);
-
-    // Pathname is like "/user_123/vid-abc.webm". We check if userId matches.
     const pathParts = urlObj.pathname.split('/');
-    // pathParts[0] is empty, pathParts[1] is the userId folder
     const fileOwnerId = pathParts[1];
 
     if (fileOwnerId !== userId) {
@@ -37,38 +40,37 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // --- EXTRACT THE DESTINATION PATH (THE FIX) ---
-    // We need the relative path from the root of the bucket.
-    // urlObj.pathname gives us "/user_id/filename.webm"
-    // We MUST remove the leading "/" to make it relative.
+    // Ensure path is relative (remove leading slash)
     let destinationPath = urlObj.pathname;
     if (destinationPath.startsWith('/')) {
         destinationPath = destinationPath.substring(1);
     }
 
-    console.log(`Attempting to update metadata for: ${videoUrl}`);
-    console.log(`Target destination path: ${destinationPath}`);
+    console.log(`Source URL: ${videoUrl}`);
+    console.log(`Destination Path for copy: ${destinationPath}`);
 
 
     // 4. Update Metadata using copy()
-    // We copy the file onto itself to update metadata.
+    console.log("Starting Vercel Blob copy operation...");
+
     await copy(videoUrl, destinationPath, {
         access: 'public',
-        contentType: 'video/webm', // Good practice to re-state content type
+        // contentType: 'video/webm', // REMOVED THIS LINE - Let Vercel detect it
         metadata: {
             customName: newName.trim(),
-            // Re-save the duration so it's not lost during the copy
+            // Re-save the duration so it's not lost
             durationSecs: durationSecs ? String(durationSecs) : undefined,
+            updatedAt: Date.now().toString() // Add timestamp to force update
         }
-    } as CopyOptionsWithMetadata); // <-- Cast to our extended interface
+    } as CopyOptionsWithMetadata);
 
-    console.log("Metadata update successful");
+    console.log("Vercel Blob copy operation completed successfully.");
 
     return NextResponse.json({ success: true, name: newName.trim() });
 
   } catch (e) {
-    console.error("Update Error Detailed:", e);
-    // Return a more specific error message if possible
+    console.error("CRITICAL UPDATE ERROR:", e);
+    // Return the actual error message to the frontend for easier debugging
     return NextResponse.json(
         { error: 'Update failed: ' + (e instanceof Error ? e.message : 'Unknown error') },
         { status: 500 }
