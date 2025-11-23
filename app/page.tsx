@@ -4,6 +4,7 @@ import { list, ListBlobResultBlob } from '@vercel/blob';
 import Link from 'next/link';
 // 1. IMPORT THE NEW CLIENT COMPONENT
 import VideoThumbnail from '@/components/VideoThumbnail';
+import DeleteVideoButton from '@/components/DeleteVideoButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +72,7 @@ export default async function Dashboard() {
                 <div className="relative h-48 bg-gray-200">
                    {/* 2. USE THE NEW CLIENT COMPONENT HERE */}
                    <VideoThumbnail src={thumbnailUrl} alt="Video thumbnail" />
+                   <DeleteVideoButton videoUrl={blob.url} />
 
                    {/* Play icon overlay on hover */}
                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all flex items-center justify-center pointer-events-none">
