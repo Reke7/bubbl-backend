@@ -70,15 +70,11 @@ export async function POST(req: Request) {
         });
     }
 
-    // 5. Upload Video, attaching duration metadata
-    console.log('Upload - Uploading video .webm with metadata');
+    // 5. Upload Video with duration in filename
+    console.log('Upload - Uploading video .webm');
     const videoBlob = await put(`${baseFilename}.webm`, videoFile, {
       access: 'public',
-      contentType: 'video/webm',
-      // Vercel Blob allows custom metadata strings. We save duration here.
-      metadata: {
-        durationSecs: durationStr
-      }
+      contentType: 'video/webm'
     });
 
     console.log('Upload - Success:', videoBlob.url);
