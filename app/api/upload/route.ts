@@ -1,22 +1,38 @@
 import { NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
-import { auth } from '@clerk/nextjs/server';
+import { auth, verifyToken } from '@clerk/nextjs/server';
 
 export async function POST(req: Request) {
-  // 1. Get the origin from the request headers
   const origin = req.headers.get('origin');
-
-  // 2. Create a base response with CORS headers
-  // You might want to validate the origin against a list of allowed domains for better security.
   const responseHeaders = new Headers();
-  responseHeaders.set('Access-Control-Allow-Origin', origin || '*'); // Set to the requesting origin
+  responseHeaders.set('Access-Control-Allow-Origin', origin || '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type');
-  responseHeaders.set('Access-Control-Allow-Credentials', 'true'); // Required for cookies
+  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  responseHeaders.set('Access-Control-Allow-Credentials', 'true');
 
   try {
-    // 3. Perform authentication
-    const { userId } = await auth();
+    // Try to get userId from session first, then from token
+    let userId;
+    
+    const authResult = await auth();
+    userId = authResult.userId;
+    
+    // If no session, try to verify token from header
+    if (!userId) {
+      const authHeader = req.headers.get('authorization');
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        // Verify token with Clerk - need to pass request as second argument
+        try {
+          const verified = await verifyToken(token, {
+            jwtKey: process.env.CLERK_JWT_KEY
+          });
+          userId = verified.sub;
+        } catch (err) {
+          console.error('Token verification failed:', err);
+        }
+      }
+    }
 
     if (!userId) {
       return NextResponse.json(
@@ -25,6 +41,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Get the file from form data
     const formData = await req.formData();
     const file = formData.get('video') as File;
 
@@ -35,7 +52,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. Upload to Vercel Blob
+    // Upload to Vercel Blob
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(7);
     const filename = `${userId}/vid-${timestamp}-${randomStr}.webm`;
@@ -44,9 +61,9 @@ export async function POST(req: Request) {
       access: 'public',
     });
 
-    // 5. Return success response with CORS headers
+    // Return success response with CORS headers
     return NextResponse.json({ url: blob.url }, { headers: responseHeaders });
-
+    
   } catch (e) {
     console.error("Upload Error:", e);
     return NextResponse.json(
@@ -62,7 +79,7 @@ export async function OPTIONS(req: Request) {
   const responseHeaders = new Headers();
   responseHeaders.set('Access-Control-Allow-Origin', origin || '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type');
+  responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization'); // Add Authorization here too
   responseHeaders.set('Access-Control-Allow-Credentials', 'true');
 
   return new NextResponse(null, { status: 200, headers: responseHeaders });
